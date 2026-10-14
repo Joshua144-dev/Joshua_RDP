@@ -24,16 +24,16 @@ jobs:
           Restart-Service -Name TermService -Force
 
       - name: Create RDP User with Fixed Password
+        shell: pwsh
         run: |
-          \$pass = "Joshua@123"
-          $securePass = ConvertTo-SecureString$pass -AsPlainText -Force
+          \$securePass = ConvertTo-SecureString "Joshua@123" -AsPlainText -Force
           if (-not (Get-LocalUser -Name "RDP" -ErrorAction SilentlyContinue)) {
               New-LocalUser -Name "RDP" -Password \$securePass -AccountNeverExpires
           }
           Add-LocalGroupMember -Group "Administrators" -Member "RDP"
           Add-LocalGroupMember -Group "Remote Desktop Users" -Member "RDP"
          
-          echo "RDP_CREDS=User: RDP | Password: $pass" >> $env:GITHUB_ENV
+          echo "RDP_CREDS=User: RDP | Password: Joshua@123" >> \$env:GITHUB_ENV
          
           if (-not (Get-LocalUser -Name "RDP")) {
               Write-Error "User creation failed"

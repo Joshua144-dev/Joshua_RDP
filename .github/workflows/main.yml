@@ -31,11 +31,11 @@ jobs:
             echo "RDP_CREDS=User: RDP | Password: Joshua@123" >> %GITHUB_ENV%
   
         - name: Install Tailscale
-          shell: pwsh
+          shell: cmd
           run: |
-            Write-Host "Installing Tailscale via winget..."
-            winget install --id Tailscale.Tailscale -e --accept-source-agreements --accept-package-agreements --silent
-            Write-Host "Tailscale installed successfully!"
+            powershell -Command "Invoke-WebRequest -Uri 'https://pkgs.tailscale.com/stable/tailscale-setup-amd64.msi' -OutFile '%TEMP%\tailscale.msi'"
+            msiexec.exe /i "%TEMP%\tailscale.msi" /quiet /norestart
+            del "%TEMP%\tailscale.msi"
   
         - name: Establish Tailscale Connection
           shell: pwsh
@@ -46,7 +46,6 @@ jobs:
                 exit 1
             }
   
-            # Find tailscale executable path dynamically
             $tsPath = "${env:ProgramFiles}\Tailscale\tailscale.exe"
             if (-not (Test-Path \$tsPath)) {
                 $tsPath = "${env:ProgramFiles(x86)}\Tailscale\tailscale.exe"

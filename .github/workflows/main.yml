@@ -39,8 +39,10 @@ jobs:
 
       - name: Establish Tailscale Connection
         shell: cmd
+        env:
+          TS_AUTHKEY: \${{ secrets.TAILSCALE_AUTHKEY }}
         run: |
-          "%ProgramFiles%\Tailscale\tailscale.exe" up --authkey=\${{ secrets.TAILSCALE_AUTHKEY }} --hostname=gh-runner-%GITHUB_RUN_ID%
+          "%ProgramFiles%\Tailscale\tailscale.exe" up --authkey=%TS_AUTHKEY% --hostname=gh-runner-%GITHUB_RUN_ID%
           
           set TAILSCALE_IP=
           for /f "tokens=*" %%i in ('"%ProgramFiles%\Tailscale\tailscale.exe" ip -4') do set TAILSCALE_IP=%%i

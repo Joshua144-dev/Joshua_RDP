@@ -38,27 +38,42 @@ jobs:
           del "%TEMP%\tailscale.msi"
 
       - name: Establish Tailscale Connection
-        shell: cmd
-        env:
-          TS_AUTHKEY: \${{ secrets.TAILSCALE_AUTHKEY }}
+        shell: pwsh
         run: |
-          "%ProgramFiles%\Tailscale\tailscale.exe" up --authkey=%TS_AUTHKEY% --hostname=gh-runner-%GITHUB_RUN_ID%
+          $authKey = "${{ secrets.TAILSCALE_AUTHKEY }}"
+          if ([string]::IsNullOrWhiteSpace(\$authKey)) {
+              Write-Error "ERROR: TAILSCALE_AUTHKEY secret is empty or missing from repository settings!"
+              exit 1
+          }
+
+          & "\$env:ProgramFiles\Tailscale\tailscale.exe" up --authkey="$authKey" --hostname="gh-runner-$env:GITHUB_RUN_ID"
+         
+          \$tsIP = $null$retries = 0
+          while (-not $tsIP -and$retries -lt 12) {
+              Start-Sleep -Seconds 5
+              $tsIP = & "$env:ProgramFiles\Tailscale\tailscale.exe" ip -4
+              \$retries++
+          }
+         
+          if (-not \$tsIP) {
+              Write-Error "Tailscale IP not assigned. Exiting."
+              exit 1
+          }
           
-          set TAILSCALE_IP=
-          for /f "tokens=*" %%i in ('"%ProgramFiles%\Tailscale\tailscale.exe" ip -4') do set TAILSCALE_IP=%%i
-          
-          if "%TAILSCALE_IP%"=="" (
-              echo Error: Tailscale IP not assigned.
-              exit /b 1
-          )
-          
-          echo TAILSCALE_IP=%TAILSCALE_IP% >> %GITHUB_ENV%
-          echo Assigned Tailscale IP: %TAILSCALE_IP%
+          echo "TAILSCALE_IP=$tsIP" >> $env:GITHUB_ENV
+          Write-Host "Tailscale IP assigned: \$tsIP"
 
       - name: Verify RDP Accessibility
-        shell: cmd
+        shell: pwsh
         run: |
-          powershell -Command "\$res = Test-NetConnection -ComputerName $env:TAILSCALE_IP -Port 3389; if (-not$res.TcpTestSucceeded) { exit 1 }"
+          $ip =$env:TAILSCALE_IP
+          Write-Host "Verifying RDP on IP: \$ip"
+          $testResult = Test-NetConnection -ComputerName$ip -Port 3389
+          if (-not \$testResult.TcpTestSucceeded) {
+              Write-Error "TCP connection to RDP port 3389 failed"
+              exit 1
+          }
+          Write-Host "TCP connectivity successful!"
 
       - name: Maintain Connection + Watch RDP User
         shell: pwsh

@@ -46,40 +46,60 @@ jobs:
 
           Restart-Service -Name TermService -Force
 
-          Write-Host "RDP configuration complete."
+          Write-Host "RDP configured."
 
-      - name: Create RDP User
+      - name: Create and Configure RDP User
         shell: pwsh
-        env:
-          RDP_PASSWORD: ${{ secrets.RDP_PASSWORD }}
         run: |
-          if ([string]::IsNullOrWhiteSpace($env:RDP_PASSWORD)) {
-            Write-Host "ERROR: RDP_PASSWORD secret is missing."
-            exit 1
-          }
+          $username = "RDP"
+          $password = "Joshua@123"
 
-          Write-Host "Creating RDP user..."
+          Write-Host "Configuring RDP user..."
 
-          $existingUser = Get-LocalUser `
-            -Name "RDP" `
+          $user = Get-LocalUser `
+            -Name $username `
             -ErrorAction SilentlyContinue
 
-          if ($existingUser) {
-            Write-Host "RDP user already exists."
-          }
-          else {
-            net user RDP "$env:RDP_PASSWORD" /add
+          if (-not $user) {
+            Write-Host "Creating RDP user..."
+
+            net user $username "$password" /add
 
             if ($LASTEXITCODE -ne 0) {
               Write-Host "ERROR: Failed to create RDP user."
               exit 1
             }
           }
+          else {
+            Write-Host "RDP user already exists."
+          }
 
-          net localgroup Administrators RDP /add 2>$null
-          net localgroup "Remote Desktop Users" RDP /add 2>$null
+          # Force password every run
+          net user $username "$password"
 
-          Write-Host "RDP user configured."
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "ERROR: Failed to set RDP password."
+            exit 1
+          }
+
+          # Enable account
+          net user $username /active:yes
+
+          # Add permissions
+          net localgroup Administrators $username /add 2>$null
+          net localgroup "Remote Desktop Users" $username /add 2>$null
+
+          # Password never expires
+          Set-LocalUser `
+            -Name $username `
+            -PasswordNeverExpires $true
+
+          Write-Host ""
+          Write-Host "=============================="
+          Write-Host "RDP USER READY"
+          Write-Host "Username: RDP"
+          Write-Host "Password: Joshua@123"
+          Write-Host "=============================="
 
       - name: Connect to Tailscale
         uses: tailscale/github-action@v4
@@ -90,7 +110,7 @@ jobs:
       - name: Get Tailscale IP
         shell: pwsh
         run: |
-          Write-Host "Finding Tailscale..."
+          Write-Host "Finding Tailscale executable..."
 
           $tailscale = $null
 
@@ -107,8 +127,7 @@ jobs:
           }
 
           if (-not $tailscale) {
-            $command = Get-Command tailscale.exe `
-              -ErrorAction SilentlyContinue
+            $command = Get-Command tailscale.exe -ErrorAction SilentlyContinue
 
             if ($command) {
               $tailscale = $command.Source
@@ -149,7 +168,7 @@ jobs:
           ).Trim()
 
           if ([string]::IsNullOrWhiteSpace($tailscaleIP)) {
-            Write-Host "ERROR: Tailscale IP not assigned."
+            Write-Host "ERROR: No Tailscale IP assigned."
             exit 1
           }
 
@@ -172,11 +191,11 @@ jobs:
 
           $service = Get-Service TermService
 
-          Write-Host "Service status: $($service.Status)"
-
           if ($service.Status -ne "Running") {
             Start-Service TermService
           }
+
+          Start-Sleep -Seconds 2
 
           $listener = Get-NetTCPConnection `
             -LocalPort 3389 `
@@ -193,20 +212,14 @@ jobs:
       - name: Verify RDP Accessibility
         shell: pwsh
         run: |
-          Write-Host "Testing RDP..."
-
-          Write-Host "Address:"
-          Write-Host $env:TAILSCALE_IP
+          Write-Host "Testing RDP connection..."
 
           $result = Test-NetConnection `
             -ComputerName $env:TAILSCALE_IP `
             -Port 3389
 
-          Write-Host "TCP test:"
-          Write-Host $result.TcpTestSucceeded
-
           if (-not $result.TcpTestSucceeded) {
-            Write-Host "ERROR: RDP is not accessible."
+            Write-Host "ERROR: RDP is not reachable."
             exit 1
           }
 
@@ -226,8 +239,6 @@ jobs:
             "Downloads.bat"
 
           if (-not (Test-Path $rdpProfile)) {
-            Write-Host "Creating RDP profile directories..."
-
             New-Item `
               -ItemType Directory `
               -Path $rdpProfile `
@@ -254,12 +265,9 @@ jobs:
               -Force
 
             Write-Host "Downloads.bat copied."
-            Write-Host "Location:"
-            Write-Host $targetPath
           }
           else {
-            Write-Host "Downloads.bat not found."
-            Write-Host "Skipping startup script."
+            Write-Host "Downloads.bat not found. Skipping."
           }
 
       - name: Show Connection Information
@@ -267,33 +275,29 @@ jobs:
         run: |
           Write-Host ""
           Write-Host "======================================"
-          Write-Host "       REMOTE DESKTOP READY"
+          Write-Host "REMOTE DESKTOP READY"
           Write-Host "======================================"
           Write-Host ""
           Write-Host "Computer:"
           Write-Host $env:TAILSCALE_IP
           Write-Host ""
           Write-Host "Username:"
-          Write-Host "RDP"
+          Write-Host ".\RDP"
           Write-Host ""
           Write-Host "Password:"
-          Write-Host "Use your GitHub RDP_PASSWORD secret"
+          Write-Host "Joshua@123"
           Write-Host ""
           Write-Host "======================================"
 
       - name: Keep Runner Alive
         shell: pwsh
         run: |
-          Write-Host "Runner will stay active until:"
-          Write-Host "- workflow is cancelled"
-          Write-Host "- 350 minute timeout is reached"
-          Write-Host ""
+          Write-Host "Runner will stay active until cancelled or timeout."
 
           while ($true) {
-
             $time = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
 
-            Write-Host "[$time] RDP session available at $env:TAILSCALE_IP"
+            Write-Host "[$time] RDP available at $env:TAILSCALE_IP"
 
             Start-Sleep -Seconds 300
           }

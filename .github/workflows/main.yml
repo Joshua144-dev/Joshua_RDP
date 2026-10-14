@@ -4,129 +4,129 @@ on:
   workflow_dispatch:
 
 jobs:
-  secure-rdp:
-    runs-on: windows-2022
-    timeout-minutes: 350
-
-    steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-
-      - name: Configure Core RDP Settings
-        run: |
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0 -Force
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 0 -Force
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "SecurityLayer" -Value 0 -Force
-
-          netsh advfirewall firewall delete rule name="RDP-Tailscale"
-          netsh advfirewall firewall add rule name="RDP-Tailscale" dir=in action=allow protocol=TCP localport=3389
-
-          Restart-Service -Name TermService -Force
-
-      - name: Create RDP User with Fixed Password
-        run: |
-          net user RDP Joshua@123 /add
-          net localgroup Administrators RDP /add
-          net localgroup "Remote Desktop Users" RDP /add
-          echo "RDP_CREDS=User: RDP | Password: Joshua@123" >> %GITHUB_ENV%
-
-      - name: Install Tailscale
-        shell: pwsh
-        run: |
-          $installerPath = "$env:TEMP\tailscale.msi"
-          Write-Host "Downloading Tailscale installer..."
-          Invoke-WebRequest -Uri "https://pkgs.tailscale.com/stable/tailscale-setup-amd64.msi" -OutFile \$installerPath
-          
-          Write-Host "Installing Tailscale silently..."
-          Start-Process msiexec.exe -ArgumentList "/i", "`"$installerPath`"", "/quiet", "/norestart" -Wait
-          
-          Remove-Item \$installerPath -Force
-          Write-Host "Tailscale installed successfully!"
-
-      - name: Establish Tailscale Connection
-        shell: pwsh
-        run: |
-          $authKey = "${{ secrets.TAILSCALE_AUTHKEY }}"
-          if ([string]::IsNullOrWhiteSpace(\$authKey)) {
-              Write-Error "ERROR: TAILSCALE_AUTHKEY secret is empty or missing from repository settings!"
-              exit 1
-          }
-
-          & "\$env:ProgramFiles\Tailscale\tailscale.exe" up --authkey="$authKey" --hostname="gh-runner-$env:GITHUB_RUN_ID"
-         
-          \$tsIP = $null$retries = 0
-          while (-not $tsIP -and$retries -lt 12) {
-              Start-Sleep -Seconds 5
-              $tsIP = & "$env:ProgramFiles\Tailscale\tailscale.exe" ip -4
-              \$retries++
-          }
-         
-          if (-not \$tsIP) {
-              Write-Error "Tailscale IP not assigned. Exiting."
-              exit 1
-          }
-          
-          echo "TAILSCALE_IP=$tsIP" >> $env:GITHUB_ENV
-          Write-Host "Tailscale IP assigned: \$tsIP"
-
-      - name: Verify RDP Accessibility
-        shell: pwsh
-        run: |
-          $ip =$env:TAILSCALE_IP
-          Write-Host "Verifying RDP on IP: \$ip"
-          $testResult = Test-NetConnection -ComputerName$ip -Port 3389
-          if (-not \$testResult.TcpTestSucceeded) {
-              Write-Error "TCP connection to RDP port 3389 failed"
-              exit 1
-          }
-          Write-Host "TCP connectivity successful!"
-
-      - name: Maintain Connection + Watch RDP User
-        shell: pwsh
-        run: |
-          Write-Host "`n=== RDP ACCESS ==="
-          Write-Host "Address: $env:TAILSCALE_IP"
-          Write-Host "Username: RDP"
-          Write-Host "Password: Joshua@123"
-          Write-Host "==================`n"
-
-          \$rdpProfile = "C:\Users\RDP"
-          $startupPath = "$rdpProfile\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup"
-          $downloadFile = "$env:GITHUB_WORKSPACE\Downloads.bat"
-          $targetPath = "$startupPath\Downloads.bat"
-
-          while (\$true) {
-              if (Test-Path \$rdpProfile) {
-                  try {
-                      if (-not (Test-Path \$startupPath)) {
-                          New-Item -ItemType Directory -Path \$startupPath -Force | Out-Null
-                      }
-
-                      if (Test-Path \$downloadFile) {
-                          Copy-Item $downloadFile -Destination$targetPath -Force
-                          Write-Host "✅ Downloads.bat copied to \$targetPath"
-                      } else {
-                          Write-Host "⚠️ Warning: Downloads.bat not found in repository root workspace."
-                      }
-
-                      if (Test-Path \$targetPath) {
-                          cmd /c \$targetPath
-                          Write-Host "✅ Downloads.bat executed successfully"
-                      }
-                      break
-                  }
-                  catch {
-                      Write-Host "❌ Error: $($_.Exception.Message)"
-                      break
-                  }
-              }
-              else {
-                  Write-Host "[\$(Get-Date)] Waiting for RDP profile to be created..."
-                  Start-Sleep -Seconds 30
-              }
-          }
-
-          while (\$true) {
-              Write-Host "[\$(Get-Date)] RDP Active - Use Cancel workflow to terminate"
-              Start-Sleep -Seconds 300
-          }
+    secure-rdp:
+      runs-on: windows-2022
+      timeout-minutes: 350
+  
+      steps:
+        - name: Checkout Repository
+          uses: actions/checkout@v4
+  
+        - name: Configure Core RDP Settings
+          run: |
+            Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0 -Force
+            Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 0 -Force
+            Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "SecurityLayer" -Value 0 -Force
+  
+            netsh advfirewall firewall delete rule name="RDP-Tailscale"
+            netsh advfirewall firewall add rule name="RDP-Tailscale" dir=in action=allow protocol=TCP localport=3389
+  
+            Restart-Service -Name TermService -Force
+  
+        - name: Create RDP User with Fixed Password
+          run: |
+            net user RDP Joshua@123 /add
+            net localgroup Administrators RDP /add
+            net localgroup "Remote Desktop Users" RDP /add
+            echo "RDP_CREDS=User: RDP | Password: Joshua@123" >> %GITHUB_ENV%
+  
+        - name: Install Tailscale
+          shell: pwsh
+          run: |
+            Write-Host "Installing Tailscale via winget..."
+            winget install --id Tailscale.Tailscale -e --accept-source-agreements --accept-package-agreements --silent
+            Write-Host "Tailscale installed successfully!"
+  
+        - name: Establish Tailscale Connection
+          shell: pwsh
+          run: |
+            $authKey = "${{ secrets.TAILSCALE_AUTHKEY }}"
+            if ([string]::IsNullOrWhiteSpace(\$authKey)) {
+                Write-Error "ERROR: TAILSCALE_AUTHKEY secret is empty or missing from repository settings!"
+                exit 1
+            }
+  
+            # Find tailscale executable path dynamically
+            $tsPath = "${env:ProgramFiles}\Tailscale\tailscale.exe"
+            if (-not (Test-Path \$tsPath)) {
+                $tsPath = "${env:ProgramFiles(x86)}\Tailscale\tailscale.exe"
+            }
+  
+            & "\$tsPath" up --authkey="$authKey" --hostname="gh-runner-$env:GITHUB_RUN_ID"
+           
+            \$tsIP = $null$retries = 0
+            while (-not $tsIP -and$retries -lt 15) {
+                Start-Sleep -Seconds 5
+                $tsIP = & "$tsPath" ip -4
+                \$retries++
+            }
+           
+            if (-not \$tsIP) {
+                Write-Error "Tailscale IP not assigned. Exiting."
+                exit 1
+            }
+            
+            echo "TAILSCALE_IP=$tsIP" >> $env:GITHUB_ENV
+            Write-Host "Tailscale IP assigned: \$tsIP"
+  
+        - name: Verify RDP Accessibility
+          shell: pwsh
+          run: |
+            $ip =$env:TAILSCALE_IP
+            Write-Host "Verifying RDP on IP: \$ip"
+            $testResult = Test-NetConnection -ComputerName$ip -Port 3389
+            if (-not \$testResult.TcpTestSucceeded) {
+                Write-Error "TCP connection to RDP port 3389 failed"
+                exit 1
+            }
+            Write-Host "TCP connectivity successful!"
+  
+        - name: Maintain Connection + Watch RDP User
+          shell: pwsh
+          run: |
+            Write-Host "`n=== RDP ACCESS ==="
+            Write-Host "Address: $env:TAILSCALE_IP"
+            Write-Host "Username: RDP"
+            Write-Host "Password: Joshua@123"
+            Write-Host "==================`n"
+  
+            \$rdpProfile = "C:\Users\RDP"
+            $startupPath = "$rdpProfile\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup"
+            $downloadFile = "$env:GITHUB_WORKSPACE\Downloads.bat"
+            $targetPath = "$startupPath\Downloads.bat"
+  
+            while (\$true) {
+                if (Test-Path \$rdpProfile) {
+                    try {
+                        if (-not (Test-Path \$startupPath)) {
+                            New-Item -ItemType Directory -Path \$startupPath -Force | Out-Null
+                        }
+  
+                        if (Test-Path \$downloadFile) {
+                            Copy-Item $downloadFile -Destination$targetPath -Force
+                            Write-Host "✅ Downloads.bat copied to \$targetPath"
+                        } else {
+                            Write-Host "⚠️ Warning: Downloads.bat not found in repository root workspace."
+                        }
+  
+                        if (Test-Path \$targetPath) {
+                            cmd /c \$targetPath
+                            Write-Host "✅ Downloads.bat executed successfully"
+                        }
+                        break
+                    }
+                    catch {
+                        Write-Host "❌ Error: $($_.Exception.Message)"
+                        break
+                    }
+                }
+                else {
+                    Write-Host "[\$(Get-Date)] Waiting for RDP profile to be created..."
+                    Start-Sleep -Seconds 30
+                }
+            }
+  
+            while (\$true) {
+                Write-Host "[\$(Get-Date)] RDP Active - Use Cancel workflow to terminate"
+                Start-Sleep -Seconds 300
+            }

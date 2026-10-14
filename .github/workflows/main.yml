@@ -31,11 +31,17 @@ jobs:
           echo "RDP_CREDS=User: RDP | Password: Joshua@123" >> %GITHUB_ENV%
 
       - name: Install Tailscale
-        shell: cmd
+        shell: pwsh
         run: |
-          curl -L -o "%TEMP%\tailscale.msi" "https://pkgs.tailscale.com/stable/tailscale-setup-1.82.0-amd64.msi"
-          msiexec.exe /i "%TEMP%\tailscale.msi" /quiet /norestart
-          del "%TEMP%\tailscale.msi"
+          $installerPath = "$env:TEMP\tailscale.msi"
+          Write-Host "Downloading Tailscale installer..."
+          Invoke-WebRequest -Uri "https://pkgs.tailscale.com/stable/tailscale-setup-amd64.msi" -OutFile \$installerPath
+          
+          Write-Host "Installing Tailscale silently..."
+          Start-Process msiexec.exe -ArgumentList "/i", "`"$installerPath`"", "/quiet", "/norestart" -Wait
+          
+          Remove-Item \$installerPath -Force
+          Write-Host "Tailscale installed successfully!"
 
       - name: Establish Tailscale Connection
         shell: pwsh

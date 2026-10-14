@@ -38,13 +38,20 @@ jobs:
           del "%TEMP%\tailscale.msi"
 
       - name: Establish Tailscale Connection
+        shell: pwsh
         run: |
-          & "\$env:ProgramFiles\Tailscale\tailscale.exe" up --authkey="${{ secrets.TAILSCALE_AUTHKEY }}" --hostname="gh-runner-$env:GITHUB_RUN_ID"
+          $authKey = "${{ secrets.TAILSCALE_AUTHKEY }}"
+          if ([string]::IsNullOrEmpty(\$authKey)) {
+              Write-Error "TAILSCALE_AUTHKEY secret is missing! Please add it in your repository Settings > Secrets and variables > Actions."
+              exit 1
+          }
+
+          & "\$env:ProgramFiles\Tailscale\tailscale.exe" up --authkey=$authKey --hostname="gh-runner-$env:GITHUB_RUN_ID"
          
           \$tsIP = $null$retries = 0
-          while (-not $tsIP -and$retries -lt 10) {
-              $tsIP = & "$env:ProgramFiles\Tailscale\tailscale.exe" ip -4
+          while (-not $tsIP -and$retries -lt 12) {
               Start-Sleep -Seconds 5
+              $tsIP = & "$env:ProgramFiles\Tailscale\tailscale.exe" ip -4
               \$retries++
           }
          
@@ -52,12 +59,16 @@ jobs:
               Write-Error "Tailscale IP not assigned. Exiting."
               exit 1
           }
-          echo "TAILSCALE_IP=$tsIP" >> $env:GITHUB_ENV
-     
+          
+          "TAILSCALE_IP=$tsIP" >> $env:GITHUB_ENV
+          Write-Host "Tailscale IP assigned: \$tsIP"
+
       - name: Verify RDP Accessibility
+        shell: pwsh
         run: |
-          Write-Host "Tailscale IP: \$env:TAILSCALE_IP"
-          $testResult = Test-NetConnection -ComputerName$env:TAILSCALE_IP -Port 3389
+          $ip =$env:TAILSCALE_IP
+          Write-Host "Verifying RDP on IP: \$ip"
+          $testResult = Test-NetConnection -ComputerName$ip -Port 3389
           if (-not \$testResult.TcpTestSucceeded) {
               Write-Error "TCP connection to RDP port 3389 failed"
               exit 1
@@ -65,16 +76,18 @@ jobs:
           Write-Host "TCP connectivity successful!"
 
       - name: Maintain Connection + Watch RDP User
+        shell: pwsh
         run: |
           Write-Host "`n=== RDP ACCESS ==="
           Write-Host "Address: $env:TAILSCALE_IP"
           Write-Host "Username: RDP"
-          Write-Host "Password: $(echo $env:RDP_CREDS)"
+          Write-Host "Password: Joshua@123"
           Write-Host "==================`n"
 
           \$rdpProfile = "C:\Users\RDP"
           $startupPath = "$rdpProfile\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup"
-          $downloadPath = "$startupPath\Downloads.bat"
+          $downloadFile = "$env:GITHUB_WORKSPACE\Downloads.bat"
+          $targetPath = "$startupPath\Downloads.bat"
 
           while (\$true) {
               if (Test-Path \$rdpProfile) {
@@ -83,15 +96,21 @@ jobs:
                           New-Item -ItemType Directory -Path \$startupPath -Force | Out-Null
                       }
 
-                      Copy-Item "$env:GITHUB_WORKSPACE\Downloads.bat" -Destination $downloadPath -Force
-                      Write-Host "✅ Downloads.bat copied to \$downloadPath"
+                      if (Test-Path \$downloadFile) {
+                          Copy-Item $downloadFile -Destination$targetPath -Force
+                          Write-Host "✅ Downloads.bat copied to \$targetPath"
+                      } else {
+                          Write-Host "⚠️ Warning: Downloads.bat not found in repository root workspace."
+                      }
 
-                      cmd /c \$downloadPath
-                      Write-Host "✅ Downloads.bat executed successfully"
+                      if (Test-Path \$targetPath) {
+                          cmd /c \$targetPath
+                          Write-Host "✅ Downloads.bat executed successfully"
+                      }
                       break
                   }
                   catch {
-                      Write-Host "❌ Error copying or executing Downloads.bat: $($_.Exception.Message)"
+                      Write-Host "❌ Error: $($_.Exception.Message)"
                       break
                   }
               }
@@ -102,6 +121,6 @@ jobs:
           }
 
           while (\$true) {
-              Write-Host "[\$(Get-Date)] RDP Active - Use Ctrl+C in workflow to terminate"
+              Write-Host "[\$(Get-Date)] RDP Active - Use Cancel workflow to terminate"
               Start-Sleep -Seconds 300
           }
